@@ -53,7 +53,7 @@ var (
 
 mc(默认): 127.0.0.1:21211
 redis(默认): 127.0.0.1:16379
-mysql(可选): 127.0.0.1:13306 用户名root 密码空 上级目录存在resource文件夹时运行
+mysql(可选): 127.0.0.1:13306 用户名root 密码空 上级目录存在test或者resource文件夹时运行
 
 Usage:
   cleanut [option] command 

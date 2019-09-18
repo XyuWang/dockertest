@@ -19,6 +19,9 @@ func sqlPath() (res string) {
 		if _, err := os.Stat(filepath.Join(dir, "resource")); err == nil {
 			return filepath.Join(dir, "resource")
 		}
+		if _, err := os.Stat(filepath.Join(dir, "test")); err == nil {
+			return filepath.Join(dir, "test")
+		}
 		dir = filepath.Dir(dir)
 	}
 	return
