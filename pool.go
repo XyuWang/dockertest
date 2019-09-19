@@ -162,10 +162,11 @@ func (p *pool) startContainer(ct *poolContainer) (err error) {
 	c, wg := p.c, p.wg
 	defer wg.Done()
 	image := ct.tag
-
-	if _, err = ct.Create(c); err != nil {
-		log.Infof("%s Create err:%v", image, err)
-		return
+	if ok, _ := ct.Exist(c); !ok {
+		if _, err = ct.Create(c); err != nil {
+			log.Infof("%s Create err:%v", image, err)
+			return
+		}
 	}
 	if err = ct.Start(c); err != nil {
 		log.Infof("%s Start err:%v", image, err)

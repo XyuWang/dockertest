@@ -163,9 +163,20 @@ func (ct *container) Healthy(c context.Context) (ok bool, err error) {
 }
 
 func (ct *container) Running(c context.Context) (ok bool, err error) {
-	if _, err = ct.cli.ContainerInspect(c, ct.name); err != nil {
+	var status types.ContainerJSON
+	if status, err = ct.cli.ContainerInspect(c, ct.name); err != nil {
 		if client.IsErrContainerNotFound(err) {
 			err = nil
+		}
+		return
+	}
+	return status.State.Running, nil
+}
+
+func (ct *container) Exist(c context.Context) (ok bool, err error) {
+	if _, err = ct.cli.ContainerInspect(c, ct.name); err != nil {
+		if client.IsErrContainerNotFound(err) {
+			return false, nil
 		}
 		return
 	}
