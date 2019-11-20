@@ -19,8 +19,9 @@ mc(默认): 127.0.0.1:21211
 
 redis(默认): 127.0.0.1:16379
 
-mysql(可选): 127.0.0.1:13306 用户名root 密码空 上级目录存在test或者resource文件夹时运行
+mysql(可选): 127.0.0.1:13306 用户名root 密码空 上级目录存在test或者resource文件夹时运行 按字母序执行*.sql文件初始化db
 
+```bash
 Usage:
 
   cleanut [option] command 
@@ -39,7 +40,7 @@ Example:
   cleanut -d  启动或清理容器数据 可在goland test配置中设为前置任务
 
   cleanut -rm  停止并销毁正在运行的容器
-  
+  ```
 ## goland配置方式
 
 Preferences > Extenal Tools > Add
