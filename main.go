@@ -41,7 +41,7 @@ var (
 		Cmd:   nil,
 		Health: &dc.HealthConfig{
 			Test:     []string{"CMD", "mysqladmin", "ping", "-h", "localhost", "--protocol=tcp"},
-			Interval: time.Second * 1,
+			Interval: time.Second * 5,
 			Timeout:  time.Second * 2,
 			Retries:  20,
 		},
