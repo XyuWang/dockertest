@@ -45,9 +45,10 @@ Example:
 
 Preferences > Extenal Tools > Add
 
-
 Program: cleanut
 
 Arguments: -d
 
 Work Dir: $FileDir$
+
+Run > Edit Configurations > Template > Go Test > Before Launch > Add External > cleanut
