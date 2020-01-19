@@ -1,4 +1,4 @@
-module github.com/XyuWang/cleanut
+module github.com/XyuWang/dockertest
 
 go 1.12
 

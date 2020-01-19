@@ -1,4 +1,4 @@
-# cleanut
+# dockertest
 
 ## 背景
 执行单元测试会依赖一些第三方数据源 如mysql mc redis 如果本地安装测试结果会污染原始数据 会导致每次跑的结果不一致
@@ -11,7 +11,7 @@
 
 ## 安装
 
-`go get -u github.com/XyuWang/cleanut`
+`go get -u github.com/XyuWang/dockertest`
 
 ## 命令行使用方法
 
@@ -24,7 +24,7 @@ mysql(可选): 127.0.0.1:13306 用户名root 密码空 上级目录存在test或
 ```bash
 Usage:
 
-  cleanut [option] command 
+  dockertest [option] command 
 
 options:
 
@@ -33,19 +33,19 @@ options:
   -rm 清理后台容器
 
 Example:
-  cleanut go test .  启动容器准备环境 执行命令结束后销毁容器
+  dockertest go test .  启动容器准备环境 执行命令结束后销毁容器
 
-  cleanut -d go test .  启动或清理容器数据 执行命令 结束后容器继续运行
+  dockertest -d go test .  启动或清理容器数据 执行命令 结束后容器继续运行
 
-  cleanut -d  启动或清理容器数据 可在goland test配置中设为前置任务
+  dockertest -d  启动或清理容器数据 可在goland test配置中设为前置任务
 
-  cleanut -rm  停止并销毁正在运行的容器
+  dockertest -rm  停止并销毁正在运行的容器
   ```
 ## goland配置方式
 
 Preferences > Extenal Tools > Add
 
-Program: cleanut
+Program: dockertest
 
 Arguments: -d
 
