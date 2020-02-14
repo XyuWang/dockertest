@@ -1,8 +1,10 @@
-package main
+package dockertest
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 
 	"github.com/docker/docker/api/types"
@@ -10,79 +12,108 @@ import (
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
+	"github.com/pkg/errors"
 )
 
-type container struct {
+type Container struct {
 	cli          *client.Client
-	image        string
-	tag          string
-	id           string
-	portBindings nat.PortMap
-	mounts       []mount.Mount
-	env          []string
-	cmd          []string
-	healthcheck  *dc.HealthConfig
-	name         string
+	Name         string
+	ImageCfg     *ImageCfg
+	Image        string
+	PortBindings nat.PortMap
+	Mounts       []mount.Mount
+	Env          []string
+	Cmd          []string
+	Healthcheck  *dc.HealthConfig
+	Hooks        []*Hooks
+	// 是否是新启动的镜像
+	Fresh bool
 }
 
-func NewContainer(cli *client.Client, name, image string, portBinding string, mounts, env, cmd []string, healthy *dc.HealthConfig) *container {
-	tags := strings.Split(image, "/")
+func NewContainer(cli *client.Client, name string, imageCfg *ImageCfg) (ct *Container, err error) {
 	port := nat.PortMap{}
-	if portBinding != "" {
-		arr := strings.Split(portBinding, ":")
-		port[nat.Port(arr[1]+"/tcp")] = []nat.PortBinding{{
-			HostIP:   "127.0.0.1",
-			HostPort: arr[0] + "/tcp",
-		}}
+	if len(imageCfg.Ports) > 0 {
+		for _, p := range imageCfg.Ports {
+			arr := strings.Split(p, ":")
+			if len(arr) != 2 {
+				err = errors.New(fmt.Sprintf("wrong port: %v", p))
+				return
+			}
+			port[nat.Port(arr[1]+"/tcp")] = []nat.PortBinding{{
+				HostIP:   "127.0.0.1",
+				HostPort: arr[0] + "/tcp",
+			}}
+		}
 	}
 	var ms []mount.Mount
+	mounts := imageCfg.Volumes
 	for _, m := range mounts {
 		as := strings.Split(m, ":")
 		if len(as) != 2 {
-			continue
+			err = errors.New(fmt.Sprintf("wrong volumn: %v", m))
+			return
+		}
+		path, err := filepath.Abs(as[0])
+		if err != nil {
+			return ct, errors.WithStack(err)
 		}
 		ms = append(ms, mount.Mount{
 			Type:   mount.TypeBind,
-			Source: as[0],
+			Source: path,
 			Target: as[1],
 		})
 	}
-	return &container{
+	var healthy *dc.HealthConfig
+	if imageCfg.HealthCheck != nil {
+		healthy = &dc.HealthConfig{
+			Test:     imageCfg.HealthCheck.Test,
+			Interval: imageCfg.HealthCheck.Interval,
+			Timeout:  imageCfg.HealthCheck.Timeout,
+			Retries:  imageCfg.HealthCheck.Retries,
+		}
+	}
+	ct = &Container{
 		cli:          cli,
-		image:        image,
-		tag:          tags[len(tags)-1],
-		portBindings: port,
-		mounts:       ms,
-		env:          env,
-		cmd:          cmd,
-		healthcheck:  healthy,
-		name:         name,
+		ImageCfg:     imageCfg,
+		Image:        imageCfg.Image,
+		PortBindings: port,
+		Mounts:       ms,
+		Env:          imageCfg.Environment,
+		Cmd:          imageCfg.Command,
+		Healthcheck:  healthy,
+		Name:         name,
 	}
+	return
 }
 
-func (ct *container) ID() string {
-	if ct.id == "" {
-		return ct.name
+func (ct *Container) shortRef() (t string) {
+	ref := ct.Image
+	if strings.Contains(ref, ":") {
+		return ref
 	}
-	return ct.id
+	return ref + ":latest"
 }
 
-func (ct *container) Name() string {
-	return ct.name
+func (ct *Container) longRef() (t string) {
+	ref := ct.Image
+	if strings.Contains(ref, "/") {
+		return ref
+	}
+	return "docker.io/library/" + ref
 }
 
-func (ct *container) Pull(c context.Context) (io.ReadCloser, error) {
-	return ct.cli.ImagePull(c, ct.image, types.ImagePullOptions{})
+func (ct *Container) Pull(c context.Context) (io.ReadCloser, error) {
+	return ct.cli.ImagePull(c, ct.Image, types.ImagePullOptions{})
 }
 
-func (ct *container) PullIfNotExist(c context.Context) (io.ReadCloser, error) {
+func (ct *Container) PullIfNotExist(c context.Context) (io.ReadCloser, error) {
 	list, err := ct.cli.ImageList(c, types.ImageListOptions{})
 	if err != nil {
 		return nil, err
 	}
 	for _, l := range list {
 		for _, t := range l.RepoTags {
-			if t == ct.tag {
+			if t == ct.shortRef() {
 				return nil, nil
 			}
 		}
@@ -90,36 +121,32 @@ func (ct *container) PullIfNotExist(c context.Context) (io.ReadCloser, error) {
 	return ct.Pull(c)
 }
 
-func (ct *container) Create(c context.Context) (dc.ContainerCreateCreatedBody, error) {
+func (ct *Container) Create(c context.Context) (dc.ContainerCreateCreatedBody, error) {
 	host := &dc.HostConfig{
 		Binds:        nil,
 		LogConfig:    dc.LogConfig{},
 		NetworkMode:  "",
-		PortBindings: ct.portBindings,
-		Mounts:       ct.mounts,
+		PortBindings: ct.PortBindings,
+		Mounts:       ct.Mounts,
 	}
-	body, err := ct.cli.ContainerCreate(c, &dc.Config{
-		Image:       ct.tag,
-		Env:         ct.env,
-		Cmd:         ct.cmd,
-		Healthcheck: ct.healthcheck,
-	}, host, nil, ct.name)
-	if err == nil {
-		ct.id = body.ID
-	}
-	return body, err
+	return ct.cli.ContainerCreate(c, &dc.Config{
+		Image:       ct.longRef(),
+		Env:         ct.Env,
+		Cmd:         ct.Cmd,
+		Healthcheck: ct.Healthcheck,
+	}, host, nil, ct.Name)
 }
 
-func (ct *container) Start(c context.Context) (err error) {
-	return ct.cli.ContainerStart(c, ct.ID(), types.ContainerStartOptions{})
+func (ct *Container) Start(c context.Context) (err error) {
+	return ct.cli.ContainerStart(c, ct.Name, types.ContainerStartOptions{})
 }
 
-func (ct *container) Wait(c context.Context) (int64, error) {
-	return ct.cli.ContainerWait(c, ct.ID())
+func (ct *Container) Wait(c context.Context) (int64, error) {
+	return ct.cli.ContainerWait(c, ct.Name)
 }
 
-func (ct *container) Logs(c context.Context, follow bool) (io.ReadCloser, error) {
-	return ct.cli.ContainerLogs(c, ct.ID(), types.ContainerLogsOptions{
+func (ct *Container) Logs(c context.Context, follow bool) (io.ReadCloser, error) {
+	return ct.cli.ContainerLogs(c, ct.Name, types.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 		Follow:     follow,
@@ -127,19 +154,19 @@ func (ct *container) Logs(c context.Context, follow bool) (io.ReadCloser, error)
 	})
 }
 
-func (ct *container) Kill(c context.Context) error {
-	return ct.cli.ContainerKill(c, ct.ID(), "KILL")
+func (ct *Container) Kill(c context.Context) error {
+	return ct.cli.ContainerKill(c, ct.Name, "KILL")
 }
 
-func (ct *container) Remove(c context.Context) error {
-	return ct.cli.ContainerRemove(c, ct.ID(), types.ContainerRemoveOptions{
+func (ct *Container) Remove(c context.Context) error {
+	return ct.cli.ContainerRemove(c, ct.Name, types.ContainerRemoveOptions{
 		RemoveVolumes: true,
 		RemoveLinks:   false,
 		Force:         true,
 	})
 }
 
-func (ct *container) SimpleStartAndWait(c context.Context) (err error) {
+func (ct *Container) SimpleStartAndWait(c context.Context) (err error) {
 	if _, err = ct.Create(c); err != nil {
 		panic(err)
 	}
@@ -150,8 +177,8 @@ func (ct *container) SimpleStartAndWait(c context.Context) (err error) {
 	return err
 }
 
-func (ct *container) Healthy(c context.Context) (ok bool, err error) {
-	cj, err := ct.cli.ContainerInspect(c, ct.ID())
+func (ct *Container) Healthy(c context.Context) (ok bool, err error) {
+	cj, err := ct.cli.ContainerInspect(c, ct.Name)
 	if err != nil {
 		return
 	}
@@ -162,9 +189,9 @@ func (ct *container) Healthy(c context.Context) (ok bool, err error) {
 	return health.Status == types.Healthy, nil
 }
 
-func (ct *container) Running(c context.Context) (ok bool, err error) {
+func (ct *Container) Running(c context.Context) (ok bool, err error) {
 	var status types.ContainerJSON
-	if status, err = ct.cli.ContainerInspect(c, ct.name); err != nil {
+	if status, err = ct.cli.ContainerInspect(c, ct.Name); err != nil {
 		if client.IsErrContainerNotFound(err) {
 			err = nil
 		}
@@ -173,8 +200,8 @@ func (ct *container) Running(c context.Context) (ok bool, err error) {
 	return status.State.Running, nil
 }
 
-func (ct *container) Exist(c context.Context) (ok bool, err error) {
-	if _, err = ct.cli.ContainerInspect(c, ct.name); err != nil {
+func (ct *Container) Exist(c context.Context) (ok bool, err error) {
+	if _, err = ct.cli.ContainerInspect(c, ct.Name); err != nil {
 		if client.IsErrContainerNotFound(err) {
 			return false, nil
 		}
@@ -183,8 +210,8 @@ func (ct *container) Exist(c context.Context) (ok bool, err error) {
 	return true, nil
 }
 
-func (ct *container) Exec(c context.Context, cmd []string) (err error) {
-	res, err := ct.cli.ContainerExecCreate(c, ct.ID(), types.ExecConfig{
+func (ct *Container) Exec(c context.Context, cmd []string) (err error) {
+	res, err := ct.cli.ContainerExecCreate(c, ct.Name, types.ExecConfig{
 		Cmd: cmd,
 	})
 	if err != nil {

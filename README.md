@@ -3,52 +3,79 @@
 ## 背景
 执行单元测试会依赖一些第三方数据源 如mysql mc redis 如果本地安装测试结果会污染原始数据 会导致每次跑的结果不一致
 
-依赖docker是一个可行的办法 但是docker存在启动容器慢的问题 我们希望他能常驻在后台 每次跑UT时候再清理并重建数据 
+因此我们依赖docker每次启动干净的容器 但是有些docker容器启动非常慢 常常耗费一分钟以上 如mysql 不如让其常驻后台 只是每次重建数据
 
-因此有了这个工具
-
-工具会默认启动三个常用依赖 mc redis mysql 并在每次执行的时候初始化数据
+项目采用扩展docker-compose配置语法的方式指定容器配置
 
 ## 安装
 
 `go get -u github.com/XyuWang/dockertest`
 
-## 命令行使用方法
+## 使用
+```golang
+  path := "./docker-compose.yml"
+  dockertest.Run(path)
+```
 
-mc(默认): 127.0.0.1:21211
+实例docker-compose配置
+```yaml
+version: "3.7"
 
-redis(默认): 127.0.0.1:16379
+services:
+  redis:
+    image: redis
+    ports:
+      - 16379:6379
+    hooks:
+      - cmd: ["redis-cli", "flushall"]
+  memcached:
+    image: memcached:1
+    ports:
+      - 21211:11211
+    hooks:
+      - cmd: ["/bin/bash", "-c", "echo 'flush_all' > /dev/tcp/127.0.0.1/11211"]
+  db:
+    image: mysql:5.6
+    ports:
+      - 13306:3306
+    environment:
+      - MYSQL_ALLOW_EMPTY_PASSWORD=yes
+      - TZ=Asia/Shanghai
+    command: [
+      '--character-set-server=utf8',
+      '--collation-server=utf8_unicode_ci'
+    ]
+    volumes:
+      - .:/docker-entrypoint-initdb.d
+    Healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "--protocol=tcp"]
+      interval: 1s
+      timeout: 2s
+      retries: 20
+      start_period: 5s
+    hooks:
+      - custom: refresh_mysql
+```
 
-mysql(可选): 127.0.0.1:13306 用户名root 密码空 上级目录存在test或者resource文件夹时运行 按字母序执行*.sql文件初始化db
 
-```bash
-Usage:
 
-  dockertest [option] command 
+## 脚本
+```
+    hooks:
+      - cmd: []
+      - custom: string
+```
+容器启动健康检查通过后 会执行用户指定的hook
 
-options:
+cmd类型: 根据cmd中的命令会调用docker exec在容器中执行 
+costom类型: 用户自定义类型 
 
-  -d 后台模式 退出程序不清理容器
-  
-  -rm 清理后台容器
+内嵌了 refresh_mysql 脚本
+### refresh_mysql
+提供以下功能:
+   1. 清理容器中除 "information_schema" "mysql"  "performance_schema" 的所有数据库
+   2. 根据环境变量 MYSQL_INIT_PATH 指定或者从当前目录往上级寻找test或者resource文件夹 读取出sql文件 重建DB
+### 开发
+`type HookFunc func(*Container) error`
 
-Example:
-  dockertest go test .  启动容器准备环境 执行命令结束后销毁容器
-
-  dockertest -d go test .  启动或清理容器数据 执行命令 结束后容器继续运行
-
-  dockertest -d  启动或清理容器数据 可在goland test配置中设为前置任务
-
-  dockertest -rm  停止并销毁正在运行的容器
-  ```
-## goland配置方式
-
-Preferences > Extenal Tools > Add
-
-Program: dockertest
-
-Arguments: -d
-
-Work Dir: $FileDir$
-
-Run > Edit Configurations > Template > Go Test > Before Launch > Add External > cleanut
+实现HookFunc方法并调用Register注册即可在custom中调用

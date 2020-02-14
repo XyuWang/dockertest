@@ -1,45 +1,23 @@
-package main
+package dockertest
 
 import (
 	"bufio"
 	"context"
 	"encoding/json"
 	"io"
-	"sync"
 	"time"
 
-	dc "github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/sync/errgroup"
 )
 
 type pool struct {
 	c          context.Context
 	cli        *client.Client
-	wg         *sync.WaitGroup
 	cancel     context.CancelFunc
-	containers []*poolContainer
-}
-
-type Container struct {
-	Image     string
-	Port      string
-	Mounts    []string
-	Env       []string
-	Cmd       []string
-	CleanCmd  []string
-	CleanFunc func()
-	InitFunc  func()
-	Health    *dc.HealthConfig
-	Name      string
-}
-
-type poolContainer struct {
-	*container
-	cleanCmd  []string
-	cleanFunc func()
-	initFunc  func()
-	fresh     bool
+	containers []*Container
 }
 
 func NewPool(cli *client.Client) (p *pool) {
@@ -48,19 +26,12 @@ func NewPool(cli *client.Client) (p *pool) {
 		c:      c,
 		cli:    cli,
 		cancel: cancel,
-		wg:     &sync.WaitGroup{},
 	}
 	return p
 }
 
-func (p *pool) Add(ct Container) {
-	nct := NewContainer(p.cli, ct.Name, ct.Image, ct.Port, ct.Mounts, ct.Env, ct.Cmd, ct.Health)
-	p.containers = append(p.containers, &poolContainer{
-		container: nct,
-		cleanCmd:  ct.CleanCmd,
-		cleanFunc: ct.CleanFunc,
-		initFunc:  ct.InitFunc,
-	})
+func (p *pool) Add(ct *Container) {
+	p.containers = append(p.containers, ct)
 	return
 }
 
@@ -68,13 +39,13 @@ func (p *pool) PullIfNotExist() (err error) {
 	for _, ct := range p.containers {
 		var out io.ReadCloser
 		if out, err = ct.PullIfNotExist(p.c); err != nil {
-			log.Infof("%s Pull err:%v", ct.image, err)
+			log.Infof("%s Pull err:%v", ct.Image, err)
 			return
 		}
 		if out == nil {
 			return
 		}
-		log.Infof("%s: 正在拉取镜像...\n", ct.image)
+		log.Infof("%s: 正在拉取镜像...\n", ct.Image)
 		scanner := bufio.NewScanner(out)
 		for scanner.Scan() {
 			var s = struct {
@@ -83,32 +54,30 @@ func (p *pool) PullIfNotExist() (err error) {
 			}{}
 			json.Unmarshal([]byte(scanner.Text()), &s)
 			if s.Progress != "" {
-				log.Infof("%s: Status: %s Progress: %v\n", ct.image, s.Status, s.Progress)
+				log.Infof("%s: Status: %s Progress: %v\n", ct.Image, s.Status, s.Progress)
 			} else {
-				log.Infof("%s: Status: %s\n", ct.image, s.Status)
+				log.Infof("%s: Status: %s\n", ct.Image, s.Status)
 			}
 		}
 		if err = scanner.Err(); err != nil {
-			log.Infof("%s pull scanner err: %v", ct.image, err)
+			log.Infof("%s pull scanner err: %v", ct.Image, err)
 		}
 	}
 	return
 }
 
-func (p *pool) Start() {
+func (p *pool) StartNotRunning() (err error) {
+	g := errgroup.Group{}
 	for _, ct := range p.containers {
-		p.wg.Add(1)
-		go p.startContainer(ct)
-	}
-}
-
-func (p *pool) StartNotRunning() {
-	for _, ct := range p.containers {
+		ct := ct
 		if ok, _ := ct.Running(p.c); !ok {
-			p.wg.Add(1)
-			go p.startContainer(ct)
+			g.Go(func() error {
+				return p.startContainer(ct)
+			})
 		}
 	}
+	err = g.Wait()
+	return
 }
 
 func (p *pool) WaitHealthy() {
@@ -121,12 +90,12 @@ func (p *pool) WaitHealthy() {
 		for _, c := range p.containers {
 			ok, _ := c.Healthy(context.Background())
 			if !ok {
-				if cs[c.image] == 0 {
-					cs[c.image] = time.Now().Unix()
+				if cs[c.Image] == 0 {
+					cs[c.Image] = time.Now().Unix()
 				}
-				if time.Now().Unix()-cs[c.image] > 10 {
-					cs[c.image] = time.Now().Unix()
-					log.Infof("%s  healthy check: unhealthy", c.tag)
+				if time.Now().Unix()-cs[c.Image] > 10 {
+					cs[c.Image] = time.Now().Unix()
+					log.Infof("%s  healthy check: unhealthy", c.shortRef())
 				}
 				healthy = false
 				break
@@ -143,7 +112,6 @@ func (p *pool) WaitHealthy() {
 
 func (p *pool) Close() {
 	p.cancel()
-	p.wg.Wait()
 }
 
 func (p *pool) Purge() {
@@ -152,31 +120,30 @@ func (p *pool) Purge() {
 			continue
 		}
 		if err := ct.Remove(context.Background()); err != nil {
-			log.Infof("%s Remove err: %v", ct.tag, err)
+			log.Infof("%s Remove err: %v", ct.shortRef(), err)
 		}
-		log.Infof("成功移除%s容器", ct.tag)
+		log.Infof("成功移除%s容器", ct.shortRef())
 	}
 }
 
-func (p *pool) startContainer(ct *poolContainer) (err error) {
-	c, wg := p.c, p.wg
-	defer wg.Done()
-	image := ct.tag
+func (p *pool) startContainer(ct *Container) (err error) {
+	c := p.c
+	image := ct.shortRef()
 	if ok, _ := ct.Exist(c); !ok {
 		if _, err = ct.Create(c); err != nil {
-			log.Infof("%s Create err:%v", image, err)
+			err = errors.Wrapf(err, "image: %s", image)
 			return
 		}
 	}
 	if err = ct.Start(c); err != nil {
-		log.Infof("%s Start err:%v", image, err)
+		err = errors.Wrapf(err, "image: %s", image)
 		return
 	}
-	ct.fresh = true
+	ct.Fresh = true
 	go func() {
 		rw, err := ct.Logs(c, true)
 		if err != nil {
-			log.Infof("%s Logs err:%v", image, err)
+			err = errors.Wrapf(err, "image: %s", image)
 			return
 		}
 		scanner := bufio.NewScanner(rw)
@@ -193,39 +160,42 @@ func (p *pool) startContainer(ct *poolContainer) (err error) {
 			}
 		}
 	}()
-	_, _ = ct.Wait(c)
 	return
 }
 
-func (p *pool) CleanData() (err error) {
+func (p *pool) RunHooks() (err error) {
 	for _, ct := range p.containers {
-		if len(ct.cleanCmd) == 0 && ct.cleanFunc == nil {
+		if len(ct.Hooks) == 0 {
 			continue
 		}
-		if ct.fresh {
-			continue
-		}
-		if len(ct.cleanCmd) > 0 {
-			if err := ct.Exec(p.c, ct.cleanCmd); err != nil {
-				log.Errorf("CleanData err: %v", err)
-				continue
+		for _, hook := range ct.Hooks {
+			if len(hook.Cmd) > 0 {
+				if err := ct.Exec(p.c, hook.Cmd); err != nil {
+					return errors.WithStack(err)
+				}
+			}
+			if len(hook.Custom) > 0 {
+				if _hooks[hook.Custom] == nil {
+					err = errors.Errorf("can't find custom hook: %s", hook.Custom)
+					return
+				}
+				if err = _hooks[hook.Custom](ct); err != nil {
+					err = errors.Wrapf(err, "run custom hook %v err: %w", hook.Custom)
+				}
 			}
 		}
-		if ct.cleanFunc != nil {
-			ct.cleanFunc()
-		}
-		log.Infof("成功清理%s容器数据", ct.tag)
 	}
 	return
 }
 
-func (p *pool) InitData() (err error) {
-	for _, ct := range p.containers {
-		if ct.initFunc == nil {
-			continue
-		}
-		ct.initFunc()
-		log.Infof("成功初始化%s容器数据", ct.tag)
+func (p *pool) Start() (err error) {
+	if err = p.PullIfNotExist(); err != nil {
+		return
 	}
+	if err = p.StartNotRunning(); err != nil {
+		return
+	}
+	p.WaitHealthy()
+	err = p.RunHooks()
 	return
 }
