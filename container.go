@@ -103,7 +103,7 @@ func (ct *Container) longRef() (t string) {
 }
 
 func (ct *Container) Pull(c context.Context) (io.ReadCloser, error) {
-	return ct.cli.ImagePull(c, ct.Image, types.ImagePullOptions{})
+	return ct.cli.ImagePull(c, ct.longRef(), types.ImagePullOptions{})
 }
 
 func (ct *Container) PullIfNotExist(c context.Context) (io.ReadCloser, error) {
