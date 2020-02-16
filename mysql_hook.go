@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/davecgh/go-spew/spew"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/pkg/errors"
 )
@@ -47,7 +46,6 @@ func getDSN(c *Container) (dsn string) {
 	if envs["MYSQL_PASSWORD"] != "" {
 		pw = envs["MYSQL_PASSWORD"]
 	}
-	spew.Dump(c.PortBindings)
 	return fmt.Sprintf("%s:%s@tcp(%s:%s)/?multiStatements=true", user, pw, host, port)
 }
 
