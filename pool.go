@@ -81,11 +81,11 @@ func (p *pool) StartNotRunning() (err error) {
 	return
 }
 
-func (p *pool) WaitHealthy() {
+func (p *pool) WaitHealthy() (err error) {
 	cs := map[string]int64{}
 	for {
 		if p.c.Err() != nil {
-			return
+			return p.c.Err()
 		}
 		var healthy = true
 		for _, c := range p.containers {
@@ -171,6 +171,7 @@ func (p *pool) RunHooks() (err error) {
 		}
 		for _, hook := range ct.Hooks {
 			if len(hook.Cmd) > 0 {
+				log.Infof("%s run hook cmd", ct.Image)
 				if err := ct.Exec(p.c, hook.Cmd); err != nil {
 					return errors.WithStack(err)
 				}
@@ -180,6 +181,7 @@ func (p *pool) RunHooks() (err error) {
 					err = errors.Errorf("can't find custom hook: %s", hook.Custom)
 					return
 				}
+				log.Infof("%s run hook %s", ct.Image, hook.Custom)
 				if err = _hooks[hook.Custom](ct); err != nil {
 					err = errors.Wrapf(err, "run custom hook %v err: %w", hook.Custom, err)
 				}
@@ -196,7 +198,9 @@ func (p *pool) Start() (err error) {
 	if err = p.StartNotRunning(); err != nil {
 		return
 	}
-	p.WaitHealthy()
+	if err = p.WaitHealthy(); err != nil {
+		return
+	}
 	err = p.RunHooks()
 	return
 }

@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"io/ioutil"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -21,20 +20,32 @@ func mysqlHook(c *Container) (err error) {
 	if err = cleanMysql(dsn); err != nil {
 		return
 	}
-	return initMysql(dsn)
+	return initMysql(c, dsn)
 }
 
 func getDSN(c *Container) (dsn string) {
 	var (
-		user     = "root"
-		host     = "127.0.0.1"
-		pw, port string
+		user = "root"
+		host = "127.0.0.1"
+		pw   string
+		port = "3306"
 	)
 	envs := make(map[string]string)
 	for _, env := range c.Env {
 		a := strings.Split(env, "=")
 		if len(a) == 2 {
 			envs[a[0]] = a[1]
+		}
+	}
+	if len(c.ImageCfg.Ports) > 0 {
+		for _, k := range c.ImageCfg.Ports {
+			a := strings.Split(k, ":")
+			if len(a) != 2 {
+				continue
+			}
+			if a[1] == "3306" {
+				port = a[0]
+			}
 		}
 	}
 	if envs["MYSQL_ROOT_PASSWORD"] != "" {
@@ -49,19 +60,11 @@ func getDSN(c *Container) (dsn string) {
 	return fmt.Sprintf("%s:%s@tcp(%s:%s)/?multiStatements=true", user, pw, host, port)
 }
 
-func sqlPath() (res string) {
-	if os.Getenv("MYSQL_INIT_PATH") != "" {
-		return os.Getenv("MYSQL_INIT_PATH")
-	}
-	dir, _ := os.Getwd()
-	for filepath.Dir(dir) != "/" {
-		if _, err := os.Stat(filepath.Join(dir, "resource")); err == nil {
-			return filepath.Join(dir, "resource")
+func sqlPath(ct *Container) (res string) {
+	for _, m := range ct.Mounts {
+		if m.Target == "/docker-entrypoint-initdb.d" {
+			return m.Source
 		}
-		if _, err := os.Stat(filepath.Join(dir, "test")); err == nil {
-			return filepath.Join(dir, "test")
-		}
-		dir = filepath.Dir(dir)
 	}
 	return
 }
@@ -96,7 +99,7 @@ func cleanMysql(dsn string) (err error) {
 	return
 }
 
-func initMysql(dsn string) (err error) {
+func initMysql(ct *Container, dsn string) (err error) {
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		err = errors.WithStack(err)
@@ -104,7 +107,7 @@ func initMysql(dsn string) (err error) {
 	}
 	c := context.Background()
 	defer db.Close()
-	pathDir := sqlPath()
+	pathDir := sqlPath(ct)
 	files, err := ioutil.ReadDir(pathDir)
 	if err != nil {
 		err = errors.Wrapf(err, "read path: %s", pathDir)

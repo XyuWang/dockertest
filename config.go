@@ -17,7 +17,7 @@ type ImageCfg struct {
 	Environment []string      `yaml:"environment"`
 	Command     []string      `yaml:"command"`
 	Volumes     []string      `yaml:"volumes"`
-	HealthCheck *HealthyCheck `yaml:"Healthcheck"`
+	HealthCheck *HealthyCheck `yaml:"healthcheck"`
 	Hooks       []*Hooks      `yaml:"hooks"`
 }
 

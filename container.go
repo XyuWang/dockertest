@@ -79,6 +79,7 @@ func NewContainer(cli *client.Client, name string, imageCfg *ImageCfg, dir strin
 		Cmd:          imageCfg.Command,
 		Healthcheck:  healthy,
 		Name:         name,
+		Hooks:        imageCfg.Hooks,
 	}
 	return
 }

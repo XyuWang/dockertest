@@ -24,7 +24,7 @@ func Run(configPath string) {
 	if err != nil {
 		panic(err)
 	}
-	dir := filepath.Dir(configPath)
+	dir, _ := filepath.Abs(filepath.Dir(configPath))
 	for name, v := range cfg.Services {
 		if ct, err := NewContainer(cli, name, v, dir); err != nil {
 			fmt.Printf("start Image: %v error: %+v", name, err)
