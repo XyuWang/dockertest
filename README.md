@@ -50,7 +50,7 @@ services:
     ]
     volumes:
       - .:/docker-entrypoint-initdb.d
-    Healthcheck:
+    healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "--protocol=tcp"]
       interval: 1s
       timeout: 2s
