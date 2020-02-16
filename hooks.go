@@ -11,7 +11,3 @@ func Register(name string, hookFunc HookFunc) {
 		panic(fmt.Sprintf("%s already registed", name))
 	}
 	_hooks[name] = hookFunc
-}
-func init() {
-	Register("refresh_mysql", mysqlHook)
-}

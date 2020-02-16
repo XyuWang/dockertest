@@ -12,6 +12,10 @@ import (
 	"github.com/pkg/errors"
 )
 
+func init() {
+	Register("refresh_mysql", mysqlHook)
+}
+
 func mysqlHook(c *Container) (err error) {
 	if c.Fresh {
 		return

@@ -77,7 +77,7 @@ costom类型: 用户自定义类型 内嵌了 refresh_mysql hook
    1. 清理容器中除 information_schema mysql  performance_schema 的所有数据库
    2. 根据mount `path:/docker-entrypoint-initdb.d` 指定的路径 读取出sql文件 重建DB
 ### 扩展开发
-    扩展声明了这样的接口
-    `type HookFunc func(*Container) error`
+    接口:
+    type HookFunc func(*Container) error
 
-只要实现此接口并调用`dockertest.Register()`方法注册即可 具体可以参考`mysql_hook.go`
+只要实现此接口并调用`dockertest.Register()`方法注册即可 例子可以参考`mysql_hook.go`
