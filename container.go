@@ -30,7 +30,7 @@ type Container struct {
 	Fresh bool
 }
 
-func NewContainer(cli *client.Client, name string, imageCfg *ImageCfg) (ct *Container, err error) {
+func NewContainer(cli *client.Client, name string, imageCfg *ImageCfg, dir string) (ct *Container, err error) {
 	port := nat.PortMap{}
 	if len(imageCfg.Ports) > 0 {
 		for _, p := range imageCfg.Ports {
@@ -53,10 +53,7 @@ func NewContainer(cli *client.Client, name string, imageCfg *ImageCfg) (ct *Cont
 			err = errors.New(fmt.Sprintf("wrong volumn: %v", m))
 			return
 		}
-		path, err := filepath.Abs(as[0])
-		if err != nil {
-			return ct, errors.WithStack(err)
-		}
+		path := filepath.Join(dir, as[0])
 		ms = append(ms, mount.Mount{
 			Type:   mount.TypeBind,
 			Source: path,

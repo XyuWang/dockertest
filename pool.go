@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"time"
 
@@ -39,13 +40,13 @@ func (p *pool) PullIfNotExist() (err error) {
 	for _, ct := range p.containers {
 		var out io.ReadCloser
 		if out, err = ct.PullIfNotExist(p.c); err != nil {
-			log.Infof("%s Pull err:%v", ct.Image, err)
+			err = errors.WithMessagef(err, "Pull Image: %s", ct.Image)
 			return
 		}
 		if out == nil {
 			return
 		}
-		log.Infof("%s: 正在拉取镜像...\n", ct.Image)
+		fmt.Printf("%s: 正在拉取镜像...\n", ct.Image)
 		scanner := bufio.NewScanner(out)
 		for scanner.Scan() {
 			var s = struct {
@@ -54,13 +55,13 @@ func (p *pool) PullIfNotExist() (err error) {
 			}{}
 			json.Unmarshal([]byte(scanner.Text()), &s)
 			if s.Progress != "" {
-				log.Infof("%s: Status: %s Progress: %v\n", ct.Image, s.Status, s.Progress)
+				fmt.Printf("%s: Status: %s Progress: %v\n", ct.Image, s.Status, s.Progress)
 			} else {
-				log.Infof("%s: Status: %s\n", ct.Image, s.Status)
+				fmt.Printf("%s: Status: %s\n", ct.Image, s.Status)
 			}
 		}
 		if err = scanner.Err(); err != nil {
-			log.Infof("%s pull scanner err: %v", ct.Image, err)
+			fmt.Printf("%s pull scanner err: %v\n", ct.Image, err)
 		}
 	}
 	return
@@ -152,11 +153,11 @@ func (p *pool) startContainer(ct *Container) (err error) {
 			if len(text) > 8 {
 				text = text[8:]
 			}
-			log.Infof("%s: %s", image, text)
+			fmt.Printf("%s: %s\n", image, text)
 		}
 		if err := scanner.Err(); err != nil {
 			if err.Error() != "context canceled" {
-				log.Infof("%s scanner err: %v", image, err)
+				fmt.Printf("%s scanner err: %v\n", image, err)
 			}
 		}
 	}()
@@ -180,7 +181,7 @@ func (p *pool) RunHooks() (err error) {
 					return
 				}
 				if err = _hooks[hook.Custom](ct); err != nil {
-					err = errors.Wrapf(err, "run custom hook %v err: %w", hook.Custom)
+					err = errors.Wrapf(err, "run custom hook %v err: %w", hook.Custom, err)
 				}
 			}
 		}
