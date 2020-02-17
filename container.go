@@ -139,10 +139,6 @@ func (ct *Container) Start(c context.Context) (err error) {
 	return ct.cli.ContainerStart(c, ct.Name, types.ContainerStartOptions{})
 }
 
-func (ct *Container) Wait(c context.Context) (int64, error) {
-	return ct.cli.ContainerWait(c, ct.Name)
-}
-
 func (ct *Container) Logs(c context.Context, follow bool) (io.ReadCloser, error) {
 	return ct.cli.ContainerLogs(c, ct.Name, types.ContainerLogsOptions{
 		ShowStdout: true,
@@ -164,17 +160,6 @@ func (ct *Container) Remove(c context.Context) error {
 	})
 }
 
-func (ct *Container) SimpleStartAndWait(c context.Context) (err error) {
-	if _, err = ct.Create(c); err != nil {
-		panic(err)
-	}
-	if err = ct.Start(c); err != nil {
-		panic(err)
-	}
-	_, err = ct.Wait(c)
-	return err
-}
-
 func (ct *Container) Healthy(c context.Context) (ok bool, err error) {
 	cj, err := ct.cli.ContainerInspect(c, ct.Name)
 	if err != nil {
@@ -190,7 +175,7 @@ func (ct *Container) Healthy(c context.Context) (ok bool, err error) {
 func (ct *Container) Running(c context.Context) (ok bool, err error) {
 	var status types.ContainerJSON
 	if status, err = ct.cli.ContainerInspect(c, ct.Name); err != nil {
-		if client.IsErrContainerNotFound(err) {
+		if client.IsErrNotFound(err) {
 			err = nil
 		}
 		return
@@ -200,7 +185,7 @@ func (ct *Container) Running(c context.Context) (ok bool, err error) {
 
 func (ct *Container) Exist(c context.Context) (ok bool, err error) {
 	if _, err = ct.cli.ContainerInspect(c, ct.Name); err != nil {
-		if client.IsErrContainerNotFound(err) {
+		if client.IsErrNotFound(err) {
 			return false, nil
 		}
 		return

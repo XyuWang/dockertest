@@ -11,3 +11,4 @@ func Register(name string, hookFunc HookFunc) {
 		panic(fmt.Sprintf("%s already registed", name))
 	}
 	_hooks[name] = hookFunc
+}

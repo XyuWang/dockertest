@@ -10,7 +10,7 @@ import (
 )
 
 func Run(configPath string) {
-	cli, err := client.NewEnvClient()
+	cli, err := client.NewClientWithOpts(client.FromEnv)
 	if err != nil {
 		fmt.Printf("连接docker失败 请先启动docker\n")
 		os.Exit(-1)
